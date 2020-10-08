@@ -36,9 +36,8 @@ def splitDispersedData(dataset,labels,column_number,value):
     returnLabels = []
     for index,data in enumerate(dataset):
         if data[column_number] == value:
-            d = data[:column_number]
-            d = np.hstack((d,data[column_number+1:]))
-            returnData.append(d)
+
+            returnData.append(data)
             returnLabels.append(labels[index])
     return returnData,returnLabels
 
@@ -60,8 +59,10 @@ def getDispersedGainRatio(dataset,labels,column_number,delimiter):
             continue
         Ent += P * calEnt(subLabels)
         IV = IV - P*log(P,2)
-    if IV==0:
+    if IV==0 and Ent==1:
         return 1
+    elif IV==0:
+        return 0
     infoGain = baseEnt - Ent
     infoGain_ratio = infoGain / IV
 
@@ -99,10 +100,8 @@ def getContinuityGainRatio(dataset,labels,column_number,threshold):
     IV = 0
     Ent = 0
 
-    # 如果可以全部区分的话 就直接返回1
-    if (lessP == 0 and len(lessDataset)>10 )or (moreP == 0 and len(moreDataset)>10):
-        return 1
-    elif lessP ==0 or moreP ==0:
+
+    if lessP <=0.1 or moreP <=0.1:
         return 0
     Ent += lessP*calEnt(lessLabels)
     Ent += moreP*calEnt(moreLabels)
@@ -147,35 +146,51 @@ def chooseBestFeature(dataset,labels,attribute,delimiter):
         print(bestThreshold)
     return bestFeature,bestThreshold
 
+def getMajorLabels(labels):
+    # 获取标签
+    label_counts = {}
+    for label in labels:
+        if label not in label_counts.keys():
+            label_counts[label] = 0
+        label_counts[label] += 1
+    maxNumber = 0
+    maxLabel = -1
+
+    for l in label_counts.keys():
+        if label_counts[l] > maxNumber:
+            maxNumber = label_counts[l]
+            maxLabel = l
+    return maxLabel
 
 def createDecisionTree(dataset,labels,attribute,delimiter,depth,l):
-    # 如果深度够了，就直接返回，防止过拟合
+    attributeCopy = attribute.copy()
+    # 如果深度够了，就直接标签，防止过拟合
     if depth >=5:
-        return None
+        return getMajorLabels(labels)
     # 如果所有的属性都被标记为已使用，即全为0,就说明没有可供选择的了，直接返回
-    if sum(attribute) ==0:
-        return None
+    if sum(attributeCopy) ==0:
+        return getMajorLabels(labels)
     # 如果已经是最有解了，就不继续了
     if len(set(labels)) ==1:
-        return None
+        return getMajorLabels(labels)
     if dataset == []:
-        return None
+        return getMajorLabels(labels)
     # 没有问题就直接选取最佳特征
-    bestFeature, bestThreshold = chooseBestFeature(dataset,labels,attribute,delimiter)
+    bestFeature, bestThreshold = chooseBestFeature(dataset,labels,attributeCopy,delimiter)
 
     # 递归创建树
     C45Tree = {l[bestFeature]: {}}
 
     # 区分连续型变量和离散型变量
     # 如果是离散型变量，就直接设置为已使用，并且直接递归
-    if attribute[bestFeature] == DISPERSE:
-        attribute[bestFeature] = USED
+    if attributeCopy[bestFeature] == DISPERSE :
+        attributeCopy[bestFeature] = USED
         for value in delimiter[bestFeature]:
             # 获得对应属性值的数据
             subDataset,subLabels = splitDispersedData(dataset,labels,bestFeature,value)
-            C45Tree[l[bestFeature]][value] = createDecisionTree(subDataset,subLabels,attribute,delimiter,depth+1,l)
+            C45Tree[l[bestFeature]][value] = createDecisionTree(subDataset,subLabels,attributeCopy,delimiter,depth+1,l)
     # 如果是连续型变量，就递归
-    elif attribute[bestFeature] ==CONTINUITY:
+    elif attributeCopy[bestFeature] ==CONTINUITY:
         lessDataset,lessLabels,moreDataset,moreLabels = splitContinuityData(dataset,labels,bestFeature,bestThreshold)
 
         lessDelimiter = delimiter.copy()
@@ -190,12 +205,55 @@ def createDecisionTree(dataset,labels,attribute,delimiter,depth,l):
         lessDelimiter[bestFeature] = less
         moreDelimiter[bestFeature] = more
 
-        C45Tree[l[bestFeature]][bestThreshold-0.01] = createDecisionTree(lessDataset,lessLabels,attribute,lessDelimiter,depth+1,l)
-        C45Tree[l[bestFeature]][bestThreshold+0.01] = createDecisionTree(moreDataset,moreLabels,attribute,moreDelimiter,depth+1,l)
+        C45Tree[l[bestFeature]]["小于"+str(bestThreshold)] = createDecisionTree(lessDataset,lessLabels,attributeCopy,lessDelimiter,depth+1,l)
+        C45Tree[l[bestFeature]]["大于"+str(bestThreshold)] = createDecisionTree(moreDataset,moreLabels,attributeCopy,moreDelimiter,depth+1,l)
 
     return C45Tree
 
+# 给一个数据用所得决策树打标签
+def guessLabel(Tree,testData,attribute,featureName):
+    firstFeature = list(Tree.keys())[0]
+    subValue = Tree[firstFeature]
+    # 获取选取特征的索引
+    firstFeatureIndex = featureName.index(firstFeature)
+    label = -1
+    # 递归判断特征
+    # 先判断是离散的还是连续的
+    if attribute[firstFeatureIndex] == DISPERSE:
+        # 如果是离散的话,直接找到对应的标签然后递归即可
+        for value in subValue.keys():
+            if value == testData[firstFeatureIndex]:
+                if type(subValue[value]) == dict:
+                    label = guessLabel(subValue[value],testData,attribute,featureName)
+                else:
+                    label =  subValue[value]
+    elif attribute[firstFeatureIndex] == CONTINUITY:
+        # 如果是连续的话，需要从str获取数据然后判断
+        # 从"大于xxxx"中提取到xxx
+        value = float(list(subValue.keys())[0][2:])
+
+        if testData[firstFeatureIndex] >= value:
+            if type(subValue["大于"+str(value)]) == dict:
+                label = guessLabel(subValue["大于"+str(value)],testData,attribute,featureName)
+            else:
+                label = subValue["大于"+str(value)]
+        else:
+            if type(subValue["小于"+str(value)]) == dict:
+                label = guessLabel(subValue["小于"+str(value)],testData,attribute,featureName)
+            else:
+                label = subValue["小于"+str(value)]
+    return label
 
 
-
-
+def analyse(Tree,testData,testLabels,attribute,featureName):
+    predictLabels = []
+    for data in testData:
+        label = guessLabel(Tree,data,attribute,featureName)
+        predictLabels.append(label)
+    ans = [testLabels[index] == predictLabels[index] for index in range(len(testData))]
+    accurate = 0
+    for index in range(len(testData)):
+        if ans[index] == True:
+            accurate +=1
+    print("准确率为",accurate/len(testData))
+    return ans

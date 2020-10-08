@@ -65,5 +65,6 @@ def getEachDelimiter(train_data,train_label,attribute):
             train_data_delimiter.append(ans)
             # print(ans)
 
-    print(train_data_delimiter[3])
+    for delimiter in train_data_delimiter:
+        print(delimiter)
     return train_data_delimiter,train_label_delimiter
