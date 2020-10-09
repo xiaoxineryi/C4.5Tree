@@ -36,7 +36,6 @@ def splitDispersedData(dataset,labels,column_number,value):
     returnLabels = []
     for index,data in enumerate(dataset):
         if data[column_number] == value:
-
             returnData.append(data)
             returnLabels.append(labels[index])
     return returnData,returnLabels
@@ -170,10 +169,8 @@ def createDecisionTree(dataset,labels,attribute,delimiter,depth,l):
     # 如果所有的属性都被标记为已使用，即全为0,就说明没有可供选择的了，直接返回
     if sum(attributeCopy) ==0:
         return getMajorLabels(labels)
-    # 如果已经是最有解了，就不继续了
+    # 如果已经是都是一个标签了，就不继续了
     if len(set(labels)) ==1:
-        return getMajorLabels(labels)
-    if dataset == []:
         return getMajorLabels(labels)
     # 没有问题就直接选取最佳特征
     bestFeature, bestThreshold = chooseBestFeature(dataset,labels,attributeCopy,delimiter)
@@ -188,7 +185,10 @@ def createDecisionTree(dataset,labels,attribute,delimiter,depth,l):
         for value in delimiter[bestFeature]:
             # 获得对应属性值的数据
             subDataset,subLabels = splitDispersedData(dataset,labels,bestFeature,value)
-            C45Tree[l[bestFeature]][value] = createDecisionTree(subDataset,subLabels,attributeCopy,delimiter,depth+1,l)
+            if subDataset == []:
+                C45Tree[l[bestFeature]][value] = getMajorLabels(labels)
+            else:
+                C45Tree[l[bestFeature]][value] = createDecisionTree(subDataset,subLabels,attributeCopy,delimiter,depth+1,l)
     # 如果是连续型变量，就递归
     elif attributeCopy[bestFeature] ==CONTINUITY:
         lessDataset,lessLabels,moreDataset,moreLabels = splitContinuityData(dataset,labels,bestFeature,bestThreshold)
@@ -204,9 +204,14 @@ def createDecisionTree(dataset,labels,attribute,delimiter,depth,l):
 
         lessDelimiter[bestFeature] = less
         moreDelimiter[bestFeature] = more
-
-        C45Tree[l[bestFeature]]["小于"+str(bestThreshold)] = createDecisionTree(lessDataset,lessLabels,attributeCopy,lessDelimiter,depth+1,l)
-        C45Tree[l[bestFeature]]["大于"+str(bestThreshold)] = createDecisionTree(moreDataset,moreLabels,attributeCopy,moreDelimiter,depth+1,l)
+        if lessLabels == []:
+            C45Tree[l[bestFeature]]["小于" + str(bestThreshold)] = getMajorLabels(labels)
+        else:
+            C45Tree[l[bestFeature]]["小于"+str(bestThreshold)] = createDecisionTree(lessDataset,lessLabels,attributeCopy,lessDelimiter,depth+1,l)
+        if moreLabels == []:
+            C45Tree[l[bestFeature]]["大于" + str(bestThreshold)] = getMajorLabels(labels)
+        else:
+            C45Tree[l[bestFeature]]["大于"+str(bestThreshold)] = createDecisionTree(moreDataset,moreLabels,attributeCopy,moreDelimiter,depth+1,l)
 
     return C45Tree
 
@@ -251,6 +256,7 @@ def analyse(Tree,testData,testLabels,attribute,featureName):
         label = guessLabel(Tree,data,attribute,featureName)
         predictLabels.append(label)
     ans = [testLabels[index] == predictLabels[index] for index in range(len(testData))]
+    print(predictLabels)
     accurate = 0
     for index in range(len(testData)):
         if ans[index] == True:
